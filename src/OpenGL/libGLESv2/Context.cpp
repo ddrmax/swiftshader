@@ -146,11 +146,15 @@ Context::Context(egl::Display *display, const Context *shareContext, EGLint clie
 	mTextureExternalZero = new TextureExternal(0);
 
 	mState.activeSampler = 0;
+
+	for(int type = 0; type < TEXTURE_TYPE_COUNT; type++)
+	{
+		bindTexture((TextureType)type, 0);
+	}
+
 	bindVertexArray(0);
 	bindArrayBuffer(0);
 	bindElementArrayBuffer(0);
-	bindTextureCubeMap(0);
-	bindTexture2D(0);
 	bindReadFramebuffer(0);
 	bindDrawFramebuffer(0);
 	bindRenderbuffer(0);
@@ -842,7 +846,7 @@ void Context::setUnpackAlignment(GLint alignment)
 	mState.unpackParameters.alignment = alignment;
 }
 
-const egl::PixelStorageModes &Context::getUnpackParameters() const
+const gl::PixelStorageModes &Context::getUnpackParameters() const
 {
 	return mState.unpackParameters;
 }
@@ -1153,46 +1157,11 @@ void Context::bindTransformFeedbackBuffer(GLuint buffer)
 	}
 }
 
-void Context::bindTexture2D(GLuint texture)
+void Context::bindTexture(TextureType type, GLuint texture)
 {
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_2D);
+	mResourceManager->checkTextureAllocation(texture, type);
 
-	mState.samplerTexture[TEXTURE_2D][mState.activeSampler] = getTexture(texture);
-}
-
-void Context::bindTextureCubeMap(GLuint texture)
-{
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_CUBE);
-
-	mState.samplerTexture[TEXTURE_CUBE][mState.activeSampler] = getTexture(texture);
-}
-
-void Context::bindTextureExternal(GLuint texture)
-{
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_EXTERNAL);
-
-	mState.samplerTexture[TEXTURE_EXTERNAL][mState.activeSampler] = getTexture(texture);
-}
-
-void Context::bindTexture3D(GLuint texture)
-{
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_3D);
-
-	mState.samplerTexture[TEXTURE_3D][mState.activeSampler] = getTexture(texture);
-}
-
-void Context::bindTexture2DArray(GLuint texture)
-{
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_2D_ARRAY);
-
-	mState.samplerTexture[TEXTURE_2D_ARRAY][mState.activeSampler] = getTexture(texture);
-}
-
-void Context::bindTexture2DRect(GLuint texture)
-{
-	mResourceManager->checkTextureAllocation(texture, TEXTURE_2D_RECT);
-
-	mState.samplerTexture[TEXTURE_2D_RECT][mState.activeSampler] = getTexture(texture);
+	mState.samplerTexture[type][mState.activeSampler] = getTexture(texture);
 }
 
 void Context::bindReadFramebuffer(GLuint framebuffer)
@@ -1568,7 +1537,7 @@ Buffer *Context::getGenericUniformBuffer() const
 GLsizei Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type) const
 {
 	GLsizei inputWidth = (mState.unpackParameters.rowLength == 0) ? width : mState.unpackParameters.rowLength;
-	GLsizei inputPitch = egl::ComputePitch(inputWidth, format, type, mState.unpackParameters.alignment);
+	GLsizei inputPitch = gl::ComputePitch(inputWidth, format, type, mState.unpackParameters.alignment);
 	GLsizei inputHeight = (mState.unpackParameters.imageHeight == 0) ? height : mState.unpackParameters.imageHeight;
 	return inputPitch * inputHeight * depth;
 }
@@ -1589,7 +1558,7 @@ GLenum Context::getPixels(const GLvoid **data, GLenum type, GLsizei imageSize) c
 
 		*data = static_cast<const unsigned char*>(mState.pixelUnpackBuffer->data()) + (ptrdiff_t)(*data);
 	}
-	return GL_NONE;
+	return GL_NO_ERROR;
 }
 
 bool Context::getBuffer(GLenum target, es2::Buffer **buffer) const
@@ -3201,74 +3170,17 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 	{
 		int baseLevel = baseTexture->getBaseLevel();
 		int maxLevel = std::min(baseTexture->getTopLevel(), baseTexture->getMaxLevel());
+		GLenum target = baseTexture->getTarget();
 
-		switch(baseTexture->getTarget())
+		switch(target)
 		{
 		case GL_TEXTURE_2D:
 		case GL_TEXTURE_EXTERNAL_OES:
 		case GL_TEXTURE_RECTANGLE_ARB:
-		{
-			Texture2D *texture = static_cast<Texture2D*>(baseTexture);
-
-			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
 			{
-				int surfaceLevel = mipmapLevel + baseLevel;
+				Texture2D *texture = static_cast<Texture2D*>(baseTexture);
 
-				if(surfaceLevel > maxLevel)
-				{
-					surfaceLevel = maxLevel;
-				}
-
-				egl::Image *surface = texture->getImage(surfaceLevel);
-				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D);
-			}
-		}
-		break;
-		case GL_TEXTURE_3D:
-		{
-			Texture3D *texture = static_cast<Texture3D*>(baseTexture);
-
-			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
-			{
-				int surfaceLevel = mipmapLevel + baseLevel;
-
-				if(surfaceLevel > maxLevel)
-				{
-					surfaceLevel = maxLevel;
-				}
-
-				egl::Image *surface = texture->getImage(surfaceLevel);
-				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_3D);
-			}
-		}
-		break;
-		case GL_TEXTURE_2D_ARRAY:
-		{
-			Texture2DArray *texture = static_cast<Texture2DArray*>(baseTexture);
-
-			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
-			{
-				int surfaceLevel = mipmapLevel + baseLevel;
-
-				if(surfaceLevel > maxLevel)
-				{
-					surfaceLevel = maxLevel;
-				}
-
-				egl::Image *surface = texture->getImage(surfaceLevel);
-				device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D_ARRAY);
-			}
-		}
-		break;
-		case GL_TEXTURE_CUBE_MAP:
-		{
-			TextureCubeMap *cubeTexture = static_cast<TextureCubeMap*>(baseTexture);
-
-			for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
-			{
-				cubeTexture->updateBorders(mipmapLevel);
-
-				for(int face = 0; face < 6; face++)
+				for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
 				{
 					int surfaceLevel = mipmapLevel + baseLevel;
 
@@ -3277,12 +3189,71 @@ void Context::applyTexture(sw::SamplerType type, int index, Texture *baseTexture
 						surfaceLevel = maxLevel;
 					}
 
-					egl::Image *surface = cubeTexture->getImage(face, surfaceLevel);
-					device->setTextureLevel(sampler, face, mipmapLevel, surface, sw::TEXTURE_CUBE);
+					egl::Image *surface = texture->getImage(surfaceLevel);
+					device->setTextureLevel(sampler, 0, mipmapLevel, surface,
+					                        (target == GL_TEXTURE_RECTANGLE_ARB) ? sw::TEXTURE_RECTANGLE : sw::TEXTURE_2D);
 				}
 			}
-		}
-		break;
+			break;
+		case GL_TEXTURE_3D:
+			{
+				Texture3D *texture = static_cast<Texture3D*>(baseTexture);
+
+				for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
+				{
+					int surfaceLevel = mipmapLevel + baseLevel;
+
+					if(surfaceLevel > maxLevel)
+					{
+						surfaceLevel = maxLevel;
+					}
+
+					egl::Image *surface = texture->getImage(surfaceLevel);
+					device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_3D);
+				}
+			}
+			break;
+		case GL_TEXTURE_2D_ARRAY:
+			{
+				Texture2DArray *texture = static_cast<Texture2DArray*>(baseTexture);
+
+				for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
+				{
+					int surfaceLevel = mipmapLevel + baseLevel;
+
+					if(surfaceLevel > maxLevel)
+					{
+						surfaceLevel = maxLevel;
+					}
+
+					egl::Image *surface = texture->getImage(surfaceLevel);
+					device->setTextureLevel(sampler, 0, mipmapLevel, surface, sw::TEXTURE_2D_ARRAY);
+				}
+			}
+			break;
+		case GL_TEXTURE_CUBE_MAP:
+			{
+				TextureCubeMap *cubeTexture = static_cast<TextureCubeMap*>(baseTexture);
+
+				for(int mipmapLevel = 0; mipmapLevel < sw::MIPMAP_LEVELS; mipmapLevel++)
+				{
+					cubeTexture->updateBorders(mipmapLevel);
+
+					for(int face = 0; face < 6; face++)
+					{
+						int surfaceLevel = mipmapLevel + baseLevel;
+
+						if(surfaceLevel > maxLevel)
+						{
+							surfaceLevel = maxLevel;
+						}
+
+						egl::Image *surface = cubeTexture->getImage(face, surfaceLevel);
+						device->setTextureLevel(sampler, face, mipmapLevel, surface, sw::TEXTURE_CUBE);
+					}
+				}
+			}
+			break;
 		default:
 			UNIMPLEMENTED();
 			break;
@@ -3315,10 +3286,10 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 	}
 
 	GLsizei outputWidth = (mState.packParameters.rowLength > 0) ? mState.packParameters.rowLength : width;
-	GLsizei outputPitch = egl::ComputePitch(outputWidth, format, type, mState.packParameters.alignment);
+	GLsizei outputPitch = gl::ComputePitch(outputWidth, format, type, mState.packParameters.alignment);
 	GLsizei outputHeight = (mState.packParameters.imageHeight == 0) ? height : mState.packParameters.imageHeight;
 	pixels = getPixelPackBuffer() ? (unsigned char*)getPixelPackBuffer()->data() + (ptrdiff_t)pixels : (unsigned char*)pixels;
-	pixels = ((char*)pixels) + egl::ComputePackingOffset(format, type, outputWidth, outputHeight, mState.packParameters);
+	pixels = ((char*)pixels) + gl::ComputePackingOffset(format, type, outputWidth, outputHeight, mState.packParameters);
 
 	// Sized query sanity check
 	if(bufSize)
@@ -3350,7 +3321,7 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 	sw::Rect dstRect(0, 0, width, height);
 	rect.clip(0.0f, 0.0f, (float)renderTarget->getWidth(), (float)renderTarget->getHeight());
 
-	sw::Surface *externalSurface = sw::Surface::create(width, height, 1, egl::ConvertFormatType(format, type), pixels, outputPitch, outputPitch * outputHeight);
+	sw::Surface *externalSurface = sw::Surface::create(width, height, 1, gl::ConvertReadFormatType(format, type), pixels, outputPitch, outputPitch * outputHeight);
 	sw::SliceRectF sliceRect(rect);
 	sw::SliceRect dstSliceRect(dstRect);
 	device->blit(renderTarget, sliceRect, externalSurface, dstSliceRect, false, false, false);
@@ -3496,6 +3467,16 @@ void Context::clearStencilBuffer(const GLint value)
 
 void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount)
 {
+	if(!applyRenderTarget())
+	{
+		return;
+	}
+
+	if(mState.currentProgram == 0)
+	{
+		return;   // Nothing to process.
+	}
+
 	sw::DrawType primitiveType;
 	int primitiveCount;
 	int verticesPerPrimitive;
@@ -3503,11 +3484,6 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 	if(!es2sw::ConvertPrimitiveType(mode, count, GL_NONE, primitiveType, primitiveCount, verticesPerPrimitive))
 	{
 		return error(GL_INVALID_ENUM);
-	}
-
-	if(!applyRenderTarget())
-	{
-		return;
 	}
 
 	applyState(mode);
@@ -3520,11 +3496,6 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 		if(err != GL_NO_ERROR)
 		{
 			return error(err);
-		}
-
-		if(!mState.currentProgram)
-		{
-			return;
 		}
 
 		applyShaders();
@@ -3554,6 +3525,16 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 
 void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices, GLsizei instanceCount)
 {
+	if(!applyRenderTarget())
+	{
+		return;
+	}
+
+	if(mState.currentProgram == 0)
+	{
+		return;   // Nothing to process.
+	}
+
 	if(!indices && !getCurrentVertexArray()->getElementArrayBuffer())
 	{
 		return error(GL_INVALID_OPERATION);
@@ -3586,11 +3567,6 @@ void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
 		return error(GL_INVALID_ENUM);
 	}
 
-	if(!applyRenderTarget())
-	{
-		return;
-	}
-
 	TranslatedIndexData indexInfo(primitiveCount);
 	GLenum err = applyIndexBuffer(indices, start, end, count, mode, type, &indexInfo);
 	if(err != GL_NO_ERROR)
@@ -3609,11 +3585,6 @@ void Context::drawElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
 		if(err != GL_NO_ERROR)
 		{
 			return error(err);
-		}
-
-		if(!mState.currentProgram)
-		{
-			return;
 		}
 
 		applyShaders();
@@ -4428,7 +4399,8 @@ const GLubyte *Context::getExtensions(GLuint index, GLuint *numExt) const
 		"GL_ANGLE_instanced_arrays",
 		"GL_ANGLE_texture_compression_dxt3",
 		"GL_ANGLE_texture_compression_dxt5",
-		//"GL_APPLE_texture_format_BGRA8888",
+		"GL_APPLE_texture_format_BGRA8888",
+		"GL_CHROMIUM_color_buffer_float_rgba", // A subset of EXT_color_buffer_float on top of OpenGL ES 2.0
 		"GL_CHROMIUM_texture_filtering_hint",
 		"GL_NV_fence",
 		"GL_NV_framebuffer_blit",
